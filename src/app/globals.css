@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+:root {
+  /* Heritage & Modern Tailoring Brand Color Palette */
+  --zahris-black: #121212;
+  --zahris-charcoal: #1e1e1e;
+  --zahris-warm-dark: #2a2725;
+  --zahris-ivory: #faf7f2;
+  --zahris-cream: #f4eee4;
+  --zahris-sand: #e8dfd2;
+  --zahris-border: #e2ded7;
+  --zahris-border-dark: #333333;
+  --zahris-gold: #c29d59;
+  --zahris-gold-hover: #ab8642;
+  --zahris-text-main: #1c1917;
+  --zahris-text-muted: #6b645c;
+  
+  --background: var(--zahris-ivory);
+  --foreground: var(--zahris-text-main);
+  
+  --card: #ffffff;
+  --card-foreground: var(--zahris-text-main);
+  
+  --primary: var(--zahris-black);
+  --primary-foreground: #ffffff;
+  
+  --secondary: var(--zahris-cream);
+  --secondary-foreground: var(--zahris-black);
+  
+  --accent: var(--zahris-gold);
+  --accent-foreground: #ffffff;
+  
+  --border: var(--zahris-border);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-zahris-black: var(--zahris-black);
+  --color-zahris-charcoal: var(--zahris-charcoal);
+  --color-zahris-ivory: var(--zahris-ivory);
+  --color-zahris-cream: var(--zahris-cream);
+  --color-zahris-sand: var(--zahris-sand);
+  --color-zahris-gold: var(--zahris-gold);
+  --color-zahris-border: var(--zahris-border);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  overflow-x: hidden;
+  width: 100%;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  overflow-x: hidden;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle Tailoring Stitch Motif */
+.stitch-border {
+  border-bottom: 2px dashed var(--zahris-gold);
+}
+
+.stitch-border-dark {
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.2);
+}
+
+/* Custom tailoring badge */
+.badge-tailor {
+  background-color: var(--zahris-cream);
+  color: var(--zahris-black);
+  border: 1px solid var(--zahris-sand);
+}
+
+/* Responsive containers */
+.container-custom {
+  width: 100%;
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .container-custom {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container-custom {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f4eee4;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c8beaf;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a89e8f;
+}
