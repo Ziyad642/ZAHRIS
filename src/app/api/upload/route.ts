@@ -33,28 +33,55 @@ export async function POST(req: Request) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const mimeType = file.type || 'image/jpeg';
 
-    // Pastikan folder public/uploads ada
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-    await mkdir(uploadsDir, { recursive: true });
+    // Jika berjalan di lingkungan Vercel serverless (read-only filesystem)
+    if (process.env.VERCEL) {
+      const base64Data = buffer.toString('base64');
+      const dataUrl = `data:${mimeType};base64,${base64Data}`;
+      return NextResponse.json({
+        success: true,
+        url: dataUrl,
+        filename: file.name,
+        originalName: file.name,
+        size: file.size,
+      });
+    }
 
-    // Buat nama file unik dan aman
-    const timestamp = Date.now();
-    const randomStr = Math.random().toString(36).substring(2, 8);
-    const fileName = `zahris-${timestamp}-${randomStr}${originalExt}`;
-    const filePath = path.join(uploadsDir, fileName);
+    try {
+      // Pastikan folder public/uploads ada
+      const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+      await mkdir(uploadsDir, { recursive: true });
 
-    await writeFile(filePath, buffer);
+      // Buat nama file unik dan aman
+      const timestamp = Date.now();
+      const randomStr = Math.random().toString(36).substring(2, 8);
+      const fileName = `zahris-${timestamp}-${randomStr}${originalExt}`;
+      const filePath = path.join(uploadsDir, fileName);
 
-    const publicUrl = `/uploads/${fileName}`;
+      await writeFile(filePath, buffer);
 
-    return NextResponse.json({
-      success: true,
-      url: publicUrl,
-      filename: fileName,
-      originalName: file.name,
-      size: file.size,
-    });
+      const publicUrl = `/uploads/${fileName}`;
+
+      return NextResponse.json({
+        success: true,
+        url: publicUrl,
+        filename: fileName,
+        originalName: file.name,
+        size: file.size,
+      });
+    } catch (writeErr) {
+      // Fallback ke Base64 data URL jika penulisan ke disk tidak diizinkan
+      const base64Data = buffer.toString('base64');
+      const dataUrl = `data:${mimeType};base64,${base64Data}`;
+      return NextResponse.json({
+        success: true,
+        url: dataUrl,
+        filename: file.name,
+        originalName: file.name,
+        size: file.size,
+      });
+    }
   } catch (err: any) {
     console.error('Error uploading file:', err);
     return NextResponse.json(

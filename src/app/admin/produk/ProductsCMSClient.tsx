@@ -86,7 +86,7 @@ export function ProductsCMSClient({ initialProducts, categories }: ProductsCMSCl
     setName(p.name);
     setCategoryId(p.categoryId);
     setDescription(p.description || '');
-    setImages(p.images && p.images.length > 0 ? p.images : ['/images/product-gamis-aira.jpg']);
+    setImages(p.images && p.images.length > 0 ? p.images : []);
     setBadge(p.badge || '');
     setCaption(p.caption || '');
     setOrder(p.order || 1);
@@ -518,8 +518,8 @@ export function ProductsCMSClient({ initialProducts, categories }: ProductsCMSCl
                   Pilih foto hasil jahitan dari HP/komputer atau foto langsung dengan kamera HP.
                 </p>
                 <ImageUploader
-                  currentImage={images[0] || '/logo.jpg'}
-                  onImageUploaded={(url: string) => setImages([url, ...images.slice(1)])}
+                  currentImage={images[0] || ''}
+                  onImageUploaded={(url: string) => setImages([url])}
                 />
               </div>
 

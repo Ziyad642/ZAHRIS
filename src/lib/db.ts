@@ -20,8 +20,13 @@ interface DatabaseStore {
   businessSettings: BusinessSettings;
 }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const STORE_PATH = path.join(DATA_DIR, 'store.json');
+const isVercel = process.env.VERCEL === '1';
+const DATA_DIR = isVercel ? '/tmp/zahris-data' : path.join(process.cwd(), 'data');
+const STORE_PATH = isVercel ? path.join('/tmp/zahris-data', 'store.json') : path.join(DATA_DIR, 'store.json');
+const BUNDLED_STORE_PATH = path.join(process.cwd(), 'data', 'store.json');
+
+// In-memory cache for fast access & serverless fallback
+let memoryStoreCache: DatabaseStore | null = null;
 
 const INITIAL_STORE: DatabaseStore = {
   siteContent: {
@@ -283,17 +288,37 @@ const INITIAL_STORE: DatabaseStore = {
 };
 
 function readStore(): DatabaseStore {
+  if (memoryStoreCache) {
+    return memoryStoreCache;
+  }
+
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    // Di Vercel serverless: jika belum ada di /tmp, salin dari store bawaan
+    if (isVercel && !fs.existsSync(STORE_PATH) && fs.existsSync(BUNDLED_STORE_PATH)) {
+      try {
+        if (!fs.existsSync(DATA_DIR)) {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+        }
+        fs.copyFileSync(BUNDLED_STORE_PATH, STORE_PATH);
+      } catch (cpErr) {
+        console.warn('Gagal menyalin store ke /tmp:', cpErr);
+      }
     }
+
     if (!fs.existsSync(STORE_PATH)) {
-      fs.writeFileSync(STORE_PATH, JSON.stringify(INITIAL_STORE, null, 2), 'utf-8');
+      if (fs.existsSync(BUNDLED_STORE_PATH)) {
+        const bundledContent = fs.readFileSync(BUNDLED_STORE_PATH, 'utf-8');
+        const parsed = JSON.parse(bundledContent);
+        const loaded: DatabaseStore = { ...INITIAL_STORE, ...parsed };
+        memoryStoreCache = loaded;
+        return loaded;
+      }
       return INITIAL_STORE;
     }
+
     const content = fs.readFileSync(STORE_PATH, 'utf-8');
     const parsed = JSON.parse(content);
-    return {
+    const store: DatabaseStore = {
       siteContent: parsed.siteContent || INITIAL_STORE.siteContent,
       services: parsed.services || INITIAL_STORE.services,
       categories: parsed.categories || INITIAL_STORE.categories,
@@ -302,20 +327,23 @@ function readStore(): DatabaseStore {
       whatsappSettings: parsed.whatsappSettings || INITIAL_STORE.whatsappSettings,
       businessSettings: parsed.businessSettings || INITIAL_STORE.businessSettings,
     };
+    memoryStoreCache = store;
+    return store;
   } catch (err) {
-    console.error('Error reading store file, using initial data:', err);
-    return INITIAL_STORE;
+    console.error('Error reading store file, using fallback data:', err);
+    return memoryStoreCache || INITIAL_STORE;
   }
 }
 
 function writeStore(data: DatabaseStore): void {
+  memoryStoreCache = data;
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Error writing store file:', err);
+    console.error('Penyimpanan disk tidak tersedia (serverless), data tersimpan di memori cache:', err);
   }
 }
 
