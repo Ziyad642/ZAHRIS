@@ -75,6 +75,19 @@ export function ProductsCMSClient({ initialProducts, categories }: ProductsCMSCl
     setIsModalOpen(true);
   };
 
+  // Sync from localStorage on mount for persistent client-side state
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('zahris_custom_products');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setProducts(parsed);
+        }
+      }
+    } catch {}
+  }, []);
+
   React.useEffect(() => {
     if (searchParams?.get('tambah') === '1') {
       openCreateModal();
@@ -144,9 +157,14 @@ export function ProductsCMSClient({ initialProducts, categories }: ProductsCMSCl
         }
 
         const data = await res.json();
-        setProducts((prev) =>
-          prev.map((item) => (item.id === editingProduct.id ? data.product : item))
-        );
+        setProducts((prev) => {
+          const next = prev.map((item) => (item.id === editingProduct.id ? data.product : item));
+          try {
+            localStorage.setItem('zahris_custom_products', JSON.stringify(next));
+            window.dispatchEvent(new CustomEvent('zahris_products_synced', { detail: next }));
+          } catch {}
+          return next;
+        });
         showToast('Perubahan produk berhasil disimpan dan otomatis tayang di website.');
       } else {
         // Create
@@ -172,7 +190,14 @@ export function ProductsCMSClient({ initialProducts, categories }: ProductsCMSCl
         }
 
         const data = await res.json();
-        setProducts((prev) => [data.product, ...prev]);
+        setProducts((prev) => {
+          const next = [data.product, ...prev];
+          try {
+            localStorage.setItem('zahris_custom_products', JSON.stringify(next));
+            window.dispatchEvent(new CustomEvent('zahris_products_synced', { detail: next }));
+          } catch {}
+          return next;
+        });
         showToast('Produk baru berhasil ditambahkan dan otomatis tayang di katalog website!');
       }
 
@@ -194,7 +219,14 @@ export function ProductsCMSClient({ initialProducts, categories }: ProductsCMSCl
       });
       if (!res.ok) throw new Error('Gagal mengubah status produk');
       const data = await res.json();
-      setProducts((prev) => prev.map((item) => (item.id === p.id ? data.product : item)));
+      setProducts((prev) => {
+        const next = prev.map((item) => (item.id === p.id ? data.product : item));
+        try {
+          localStorage.setItem('zahris_custom_products', JSON.stringify(next));
+          window.dispatchEvent(new CustomEvent('zahris_products_synced', { detail: next }));
+        } catch {}
+        return next;
+      });
       router.refresh();
       showToast(`Status produk diperbarui: ${!p.isActive ? 'Aktif' : 'Nonaktif'}`);
     } catch (err) {
@@ -210,7 +242,14 @@ export function ProductsCMSClient({ initialProducts, categories }: ProductsCMSCl
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Gagal menghapus produk');
-      setProducts((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      setProducts((prev) => {
+        const next = prev.filter((item) => item.id !== deleteTarget.id);
+        try {
+          localStorage.setItem('zahris_custom_products', JSON.stringify(next));
+          window.dispatchEvent(new CustomEvent('zahris_products_synced', { detail: next }));
+        } catch {}
+        return next;
+      });
       router.refresh();
       showToast('Produk berhasil dihapus dari website.');
       setDeleteTarget(null);

@@ -287,38 +287,69 @@ const INITIAL_STORE: DatabaseStore = {
   },
 };
 
-function readStore(): DatabaseStore {
-  if (memoryStoreCache) {
-    return memoryStoreCache;
-  }
+const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '';
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
 
+async function fetchFromKV(): Promise<DatabaseStore | null> {
+  if (!KV_URL || !KV_TOKEN) return null;
   try {
-    // Di Vercel serverless: jika belum ada di /tmp, salin dari store bawaan
+    const res = await fetch(`${KV_URL}/get/zahris_store`, {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.result) return null;
+    const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+    return parsed as DatabaseStore;
+  } catch (err) {
+    console.error('KV fetch error:', err);
+    return null;
+  }
+}
+
+async function writeToKV(data: DatabaseStore): Promise<boolean> {
+  if (!KV_URL || !KV_TOKEN) return false;
+  try {
+    const res = await fetch(`${KV_URL}/set/zahris_store`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${KV_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(JSON.stringify(data)),
+      cache: 'no-store',
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('KV write error:', err);
+    return false;
+  }
+}
+
+function readStoreFromDisk(): DatabaseStore {
+  try {
     if (isVercel && !fs.existsSync(STORE_PATH) && fs.existsSync(BUNDLED_STORE_PATH)) {
       try {
         if (!fs.existsSync(DATA_DIR)) {
           fs.mkdirSync(DATA_DIR, { recursive: true });
         }
         fs.copyFileSync(BUNDLED_STORE_PATH, STORE_PATH);
-      } catch (cpErr) {
-        console.warn('Gagal menyalin store ke /tmp:', cpErr);
-      }
+      } catch {}
     }
 
     if (!fs.existsSync(STORE_PATH)) {
       if (fs.existsSync(BUNDLED_STORE_PATH)) {
         const bundledContent = fs.readFileSync(BUNDLED_STORE_PATH, 'utf-8');
         const parsed = JSON.parse(bundledContent);
-        const loaded: DatabaseStore = { ...INITIAL_STORE, ...parsed };
-        memoryStoreCache = loaded;
-        return loaded;
+        return { ...INITIAL_STORE, ...parsed };
       }
       return INITIAL_STORE;
     }
 
     const content = fs.readFileSync(STORE_PATH, 'utf-8');
     const parsed = JSON.parse(content);
-    const store: DatabaseStore = {
+    return {
       siteContent: parsed.siteContent || INITIAL_STORE.siteContent,
       services: parsed.services || INITIAL_STORE.services,
       categories: parsed.categories || INITIAL_STORE.categories,
@@ -327,35 +358,62 @@ function readStore(): DatabaseStore {
       whatsappSettings: parsed.whatsappSettings || INITIAL_STORE.whatsappSettings,
       businessSettings: parsed.businessSettings || INITIAL_STORE.businessSettings,
     };
-    memoryStoreCache = store;
-    return store;
   } catch (err) {
-    console.error('Error reading store file, using fallback data:', err);
-    return memoryStoreCache || INITIAL_STORE;
+    return INITIAL_STORE;
   }
 }
 
-function writeStore(data: DatabaseStore): void {
-  memoryStoreCache = data;
+function writeStoreToDisk(data: DatabaseStore): void {
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Penyimpanan disk tidak tersedia (serverless), data tersimpan di memori cache:', err);
+  } catch {}
+}
+
+async function getStore(): Promise<DatabaseStore> {
+  if (KV_URL && KV_TOKEN) {
+    const cloud = await fetchFromKV();
+    if (cloud && cloud.products) {
+      memoryStoreCache = cloud;
+      return cloud;
+    }
   }
+
+  if (memoryStoreCache) {
+    return memoryStoreCache;
+  }
+
+  const diskStore = readStoreFromDisk();
+  memoryStoreCache = diskStore;
+
+  if (KV_URL && KV_TOKEN) {
+    writeToKV(diskStore).catch(() => {});
+  }
+
+  return diskStore;
+}
+
+async function saveStore(data: DatabaseStore): Promise<void> {
+  memoryStoreCache = data;
+
+  if (KV_URL && KV_TOKEN) {
+    await writeToKV(data);
+  }
+
+  writeStoreToDisk(data);
 }
 
 // ==================== SITE CONTENT ====================
 
 export async function getSiteContent(): Promise<SiteContent> {
-  const store = readStore();
+  const store = await getStore();
   return store.siteContent;
 }
 
 export async function updateSiteContent(updates: Partial<SiteContent>): Promise<SiteContent> {
-  const store = readStore();
+  const store = await getStore();
   store.siteContent = {
     ...store.siteContent,
     ...updates,
@@ -364,39 +422,39 @@ export async function updateSiteContent(updates: Partial<SiteContent>): Promise<
     pickupDelivery: { ...store.siteContent.pickupDelivery, ...(updates.pickupDelivery || {}) },
     finalCta: { ...store.siteContent.finalCta, ...(updates.finalCta || {}) },
   };
-  writeStore(store);
+  await saveStore(store);
   return store.siteContent;
 }
 
 // ==================== SERVICES ====================
 
 export async function getServices(includeInactive = false): Promise<ServiceItem[]> {
-  const store = readStore();
+  const store = await getStore();
   const list = store.services || [];
   const filtered = includeInactive ? list : list.filter((s) => s.isActive);
   return filtered.sort((a, b) => a.order - b.order);
 }
 
 export async function updateService(id: string, updates: Partial<ServiceItem>): Promise<ServiceItem | null> {
-  const store = readStore();
+  const store = await getStore();
   const index = store.services.findIndex((s) => s.id === id);
   if (index === -1) return null;
   store.services[index] = { ...store.services[index], ...updates };
-  writeStore(store);
+  await saveStore(store);
   return store.services[index];
 }
 
 // ==================== CATEGORIES ====================
 
 export async function getCategories(includeInactive = false): Promise<CategoryItem[]> {
-  const store = readStore();
+  const store = await getStore();
   const list = store.categories || [];
   const filtered = includeInactive ? list : list.filter((c) => c.isActive);
   return filtered.sort((a, b) => a.order - b.order);
 }
 
 export async function createCategory(name: string): Promise<CategoryItem> {
-  const store = readStore();
+  const store = await getStore();
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   const newCat: CategoryItem = {
     id: `cat-${Date.now()}`,
@@ -406,21 +464,21 @@ export async function createCategory(name: string): Promise<CategoryItem> {
     isActive: true,
   };
   store.categories.push(newCat);
-  writeStore(store);
+  await saveStore(store);
   return newCat;
 }
 
 export async function updateCategory(id: string, updates: Partial<CategoryItem>): Promise<CategoryItem | null> {
-  const store = readStore();
+  const store = await getStore();
   const index = store.categories.findIndex((c) => c.id === id);
   if (index === -1) return null;
   store.categories[index] = { ...store.categories[index], ...updates };
-  writeStore(store);
+  await saveStore(store);
   return store.categories[index];
 }
 
 export async function deleteCategory(id: string): Promise<{ success: boolean; message?: string }> {
-  const store = readStore();
+  const store = await getStore();
   // Check if any product is using this category
   const used = store.products.some((p) => p.categoryId === id);
   if (used) {
@@ -432,43 +490,43 @@ export async function deleteCategory(id: string): Promise<{ success: boolean; me
   const index = store.categories.findIndex((c) => c.id === id);
   if (index === -1) return { success: false, message: 'Kategori tidak ditemukan.' };
   store.categories.splice(index, 1);
-  writeStore(store);
+  await saveStore(store);
   return { success: true };
 }
 
 // ==================== PRODUCTS ====================
 
 export async function getProducts(includeInactive = false): Promise<ProductItem[]> {
-  const store = readStore();
+  const store = await getStore();
   const list = store.products || [];
   const filtered = includeInactive ? list : list.filter((p) => p.isActive);
   return filtered.sort((a, b) => a.order - b.order);
 }
 
 export async function getProductBySlug(slug: string): Promise<ProductItem | null> {
-  const store = readStore();
+  const store = await getStore();
   return store.products.find((p) => p.slug === slug && p.isActive) || null;
 }
 
 export async function getProductById(id: string): Promise<ProductItem | null> {
-  const store = readStore();
+  const store = await getStore();
   return store.products.find((p) => p.id === id) || null;
 }
 
 export async function createProduct(data: Omit<ProductItem, 'id' | 'createdAt'>): Promise<ProductItem> {
-  const store = readStore();
+  const store = await getStore();
   const newProduct: ProductItem = {
     ...data,
     id: `prod-${Date.now()}`,
     createdAt: new Date().toISOString(),
   };
   store.products.unshift(newProduct);
-  writeStore(store);
+  await saveStore(store);
   return newProduct;
 }
 
 export async function updateProduct(id: string, updates: Partial<ProductItem>): Promise<ProductItem | null> {
-  const store = readStore();
+  const store = await getStore();
   const index = store.products.findIndex((p) => p.id === id);
   if (index === -1) return null;
   store.products[index] = {
@@ -476,23 +534,23 @@ export async function updateProduct(id: string, updates: Partial<ProductItem>): 
     ...updates,
     updatedAt: new Date().toISOString(),
   };
-  writeStore(store);
+  await saveStore(store);
   return store.products[index];
 }
 
 export async function deleteProduct(id: string): Promise<boolean> {
-  const store = readStore();
+  const store = await getStore();
   const index = store.products.findIndex((p) => p.id === id);
   if (index === -1) return false;
   store.products.splice(index, 1);
-  writeStore(store);
+  await saveStore(store);
   return true;
 }
 
 // ==================== GALLERY ====================
 
 export async function getGallery(category?: string, includeInactive = false): Promise<GalleryItem[]> {
-  const store = readStore();
+  const store = await getStore();
   let list = store.gallery || [];
   if (!includeInactive) list = list.filter((g) => g.isActive);
   if (category && category !== 'Semua') {
@@ -502,71 +560,71 @@ export async function getGallery(category?: string, includeInactive = false): Pr
 }
 
 export async function createGalleryItem(data: Omit<GalleryItem, 'id' | 'createdAt'>): Promise<GalleryItem> {
-  const store = readStore();
+  const store = await getStore();
   const newItem: GalleryItem = {
     ...data,
     id: `gal-${Date.now()}`,
     createdAt: new Date().toISOString(),
   };
   store.gallery.unshift(newItem);
-  writeStore(store);
+  await saveStore(store);
   return newItem;
 }
 
 export async function updateGalleryItem(id: string, updates: Partial<GalleryItem>): Promise<GalleryItem | null> {
-  const store = readStore();
+  const store = await getStore();
   const index = store.gallery.findIndex((g) => g.id === id);
   if (index === -1) return null;
   store.gallery[index] = { ...store.gallery[index], ...updates };
-  writeStore(store);
+  await saveStore(store);
   return store.gallery[index];
 }
 
 export async function deleteGalleryItem(id: string): Promise<boolean> {
-  const store = readStore();
+  const store = await getStore();
   const index = store.gallery.findIndex((g) => g.id === id);
   if (index === -1) return false;
   store.gallery.splice(index, 1);
-  writeStore(store);
+  await saveStore(store);
   return true;
 }
 
 // ==================== WHATSAPP SETTINGS ====================
 
 export async function getWhatsAppSettings(): Promise<WhatsAppSettings> {
-  const store = readStore();
+  const store = await getStore();
   return store.whatsappSettings;
 }
 
 export async function updateWhatsAppSettings(updates: Partial<WhatsAppSettings>): Promise<WhatsAppSettings> {
-  const store = readStore();
+  const store = await getStore();
   store.whatsappSettings = { ...store.whatsappSettings, ...updates };
-  writeStore(store);
+  await saveStore(store);
   return store.whatsappSettings;
 }
 
 // ==================== BUSINESS SETTINGS ====================
 
 export async function getBusinessSettings(): Promise<BusinessSettings> {
-  const store = readStore();
+  const store = await getStore();
   return store.businessSettings;
 }
 
 export async function updateBusinessSettings(updates: Partial<BusinessSettings>): Promise<BusinessSettings> {
-  const store = readStore();
+  const store = await getStore();
   store.businessSettings = {
     ...store.businessSettings,
     ...updates,
     updatedAt: new Date().toISOString(),
   };
-  writeStore(store);
+  await saveStore(store);
   return store.businessSettings;
 }
 
 // ==================== ADMIN DASHBOARD STATS ====================
 
 export async function getAdminDashboardStats() {
-  const store = readStore();
+  const store = await getStore();
   return {
     activeProductsCount: (store.products || []).filter((p) => p.isActive).length,
     categoriesCount: (store.categories || []).filter((c) => c.isActive).length,

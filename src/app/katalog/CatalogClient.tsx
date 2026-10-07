@@ -21,19 +21,54 @@ export function CatalogClient({ initialProducts, categories, waSettings }: Catal
 
   // Update if props change
   React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('zahris_custom_products');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setProducts(parsed.filter((p) => p.isActive));
+          return;
+        }
+      }
+    } catch {}
     setProducts(initialProducts);
   }, [initialProducts]);
 
-  // Real-time live synchronization (focus & interval)
+  // Real-time live synchronization (focus & interval & custom event)
   React.useEffect(() => {
     let isMounted = true;
+
+    // Listen to local sync from admin on same device/browser
+    const handleLocalSync = (e: any) => {
+      if (Array.isArray(e.detail) && isMounted) {
+        setProducts(e.detail.filter((p: any) => p.isActive));
+      }
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'zahris_custom_products' && e.newValue && isMounted) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setProducts(parsed.filter((p: any) => p.isActive));
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('zahris_products_synced', handleLocalSync);
+    window.addEventListener('storage', handleStorage);
+
     const syncProducts = async () => {
       try {
         const res = await fetch('/api/products', { cache: 'no-store' });
         if (res.ok && isMounted) {
           const data = await res.json();
           if (Array.isArray(data.products)) {
-            setProducts(data.products);
+            const saved = localStorage.getItem('zahris_custom_products');
+            if (!saved) {
+              setProducts(data.products.filter((p: any) => p.isActive));
+            }
           }
         }
       } catch {
@@ -46,6 +81,8 @@ export function CatalogClient({ initialProducts, categories, waSettings }: Catal
 
     return () => {
       isMounted = false;
+      window.removeEventListener('zahris_products_synced', handleLocalSync);
+      window.removeEventListener('storage', handleStorage);
       window.removeEventListener('focus', syncProducts);
       clearInterval(interval);
     };

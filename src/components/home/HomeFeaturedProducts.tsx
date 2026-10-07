@@ -21,18 +21,52 @@ export function HomeFeaturedProducts({
   const [products, setProducts] = useState<ProductItem[]>(initialProducts);
 
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem('zahris_custom_products');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setProducts(parsed.filter((p) => p.isActive));
+          return;
+        }
+      }
+    } catch {}
     setProducts(initialProducts);
   }, [initialProducts]);
 
   useEffect(() => {
     let isMounted = true;
+
+    const handleLocalSync = (e: any) => {
+      if (Array.isArray(e.detail) && isMounted) {
+        setProducts(e.detail.filter((p: any) => p.isActive));
+      }
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'zahris_custom_products' && e.newValue && isMounted) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setProducts(parsed.filter((p) => p.isActive));
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('zahris_products_synced', handleLocalSync);
+    window.addEventListener('storage', handleStorage);
+
     const syncProducts = async () => {
       try {
         const res = await fetch('/api/products', { cache: 'no-store' });
         if (res.ok && isMounted) {
           const data = await res.json();
           if (Array.isArray(data.products)) {
-            setProducts(data.products.slice(0, 6));
+            const saved = localStorage.getItem('zahris_custom_products');
+            if (!saved) {
+              setProducts(data.products.filter((p: any) => p.isActive));
+            }
           }
         }
       } catch {
@@ -45,6 +79,8 @@ export function HomeFeaturedProducts({
 
     return () => {
       isMounted = false;
+      window.removeEventListener('zahris_products_synced', handleLocalSync);
+      window.removeEventListener('storage', handleStorage);
       window.removeEventListener('focus', syncProducts);
       clearInterval(interval);
     };
